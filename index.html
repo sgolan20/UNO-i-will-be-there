@@ -2,7 +2,9 @@
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>UNO Festival - I Will Be There</title>
     <style>
         * {
@@ -14,11 +16,17 @@
         body {
             background-color: #1a0a0a;
             min-height: 100vh;
+            min-height: -webkit-fill-available;
             display: flex;
             justify-content: center;
             align-items: center;
             font-family: Arial, sans-serif;
             overflow: hidden;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+
+        html {
+            height: -webkit-fill-available;
         }
 
         .container {
@@ -43,6 +51,17 @@
             height: 100%;
             object-fit: cover;
             transform: scaleX(-1);
+            -webkit-transform: scaleX(-1);
+            background-color: #000;
+        }
+
+        /* iOS video fix */
+        video::-webkit-media-controls {
+            display: none !important;
+        }
+
+        video::-webkit-media-controls-enclosure {
+            display: none !important;
         }
 
         #canvas {
@@ -89,6 +108,9 @@
             align-items: center;
             box-shadow: 0 4px 15px rgba(212, 175, 55, 0.4);
             transition: transform 0.2s, box-shadow 0.2s;
+            -webkit-transition: transform 0.2s, box-shadow 0.2s;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
         }
 
         .capture-btn:hover, .upload-btn:hover {
@@ -114,6 +136,10 @@
             bottom: 20%;
             z-index: 2;
             cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         #fileInput {
@@ -127,12 +153,15 @@
             right: 0;
             background: linear-gradient(to top, rgba(26, 10, 10, 0.98), rgba(26, 10, 10, 0.95));
             padding: 25px 20px;
+            padding-bottom: calc(25px + env(safe-area-inset-bottom));
             z-index: 100;
             transform: translateY(100%);
             transition: transform 0.3s ease;
+            -webkit-transition: transform 0.3s ease;
             border-top-left-radius: 20px;
             border-top-right-radius: 20px;
             box-shadow: 0 -5px 30px rgba(0,0,0,0.5);
+            -webkit-overflow-scrolling: touch;
         }
 
         .share-panel.active {
@@ -296,7 +325,7 @@
 <body>
     <div class="container">
         <div class="camera-container">
-            <video id="video" autoplay playsinline></video>
+            <video id="video" autoplay playsinline muted></video>
             <img id="capturedImage" alt="Captured selfie">
         </div>
 
@@ -403,19 +432,39 @@
 
         async function startCamera() {
             try {
-                stream = await navigator.mediaDevices.getUserMedia({
+                // Try with ideal constraints first
+                const constraints = {
                     video: {
                         facingMode: 'user',
                         width: { ideal: 1280 },
                         height: { ideal: 1280 }
                     },
                     audio: false
-                });
+                };
+
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (e) {
+                    // Fallback to basic constraints for iOS
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: 'user' },
+                        audio: false
+                    });
+                }
+
                 video.srcObject = stream;
+
+                // iOS requires explicit play after setting srcObject
+                video.onloadedmetadata = () => {
+                    video.play().catch(e => console.log('Video play error:', e));
+                };
+
                 permissionOverlay.classList.add('hidden');
             } catch (err) {
                 console.error('Error accessing camera:', err);
-                alert('לא ניתן לגשת למצלמה. אנא אשר הרשאות מצלמה.');
+                // Show upload option as fallback
+                alert('לא ניתן לגשת למצלמה. אתה יכול להעלות תמונה מהגלריה.');
+                permissionOverlay.classList.add('hidden');
             }
         }
 
@@ -424,6 +473,10 @@
         // Capture from camera
         async function captureFromCamera() {
             if (video.style.display === 'none') return;
+            if (!video.videoWidth || !video.videoHeight) {
+                console.log('Video not ready yet');
+                return;
+            }
 
             isFromUpload = false;
 
@@ -457,6 +510,12 @@
 
         captureBtn.addEventListener('click', captureFromCamera);
         clickToCapture.addEventListener('click', captureFromCamera);
+
+        // Touch support for iOS
+        clickToCapture.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            captureFromCamera();
+        }, { passive: false });
 
         // Upload from device
         uploadBtn.addEventListener('click', () => {
