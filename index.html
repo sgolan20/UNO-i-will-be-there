@@ -66,17 +66,23 @@
             pointer-events: none;
         }
 
-        .capture-btn {
+        .buttons-container {
             position: absolute;
-            bottom: 5%;
+            bottom: 12%;
             left: 50%;
             transform: translateX(-50%);
             z-index: 3;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .capture-btn, .upload-btn {
             background: linear-gradient(145deg, #d4af37, #aa8a2e);
             border: none;
             border-radius: 50%;
-            width: 70px;
-            height: 70px;
+            width: 65px;
+            height: 65px;
             cursor: pointer;
             display: flex;
             justify-content: center;
@@ -85,19 +91,33 @@
             transition: transform 0.2s, box-shadow 0.2s;
         }
 
-        .capture-btn:hover {
-            transform: translateX(-50%) scale(1.1);
+        .capture-btn:hover, .upload-btn:hover {
+            transform: scale(1.1);
             box-shadow: 0 6px 20px rgba(212, 175, 55, 0.6);
         }
 
-        .capture-btn:active {
-            transform: translateX(-50%) scale(0.95);
+        .capture-btn:active, .upload-btn:active {
+            transform: scale(0.95);
         }
 
-        .capture-btn svg {
-            width: 35px;
-            height: 35px;
+        .capture-btn svg, .upload-btn svg {
+            width: 30px;
+            height: 30px;
             fill: white;
+        }
+
+        .click-to-capture {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 20%;
+            z-index: 2;
+            cursor: pointer;
+        }
+
+        #fileInput {
+            display: none;
         }
 
         .share-panel {
@@ -282,11 +302,22 @@
 
         <img src="UNO.png" alt="UNO Festival Frame" class="overlay-image">
 
-        <button class="capture-btn" id="captureBtn">
-            <svg viewBox="0 0 24 24">
-                <path d="M12 15.2c1.77 0 3.2-1.43 3.2-3.2S13.77 8.8 12 8.8 8.8 10.23 8.8 12s1.43 3.2 3.2 3.2zm8.5-8.7h-3.15l-1.65-1.8c-.32-.35-.78-.55-1.25-.55h-4.9c-.47 0-.93.2-1.25.55l-1.65 1.8H3.5c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h17c1.1 0 2-.9 2-2v-10c0-1.1-.9-2-2-2zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
-            </svg>
-        </button>
+        <div class="click-to-capture" id="clickToCapture"></div>
+
+        <div class="buttons-container" id="buttonsContainer">
+            <button class="upload-btn" id="uploadBtn" title="העלה תמונה">
+                <svg viewBox="0 0 24 24">
+                    <path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/>
+                </svg>
+            </button>
+            <button class="capture-btn" id="captureBtn" title="צלם תמונה">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 15.2c1.77 0 3.2-1.43 3.2-3.2S13.77 8.8 12 8.8 8.8 10.23 8.8 12s1.43 3.2 3.2 3.2zm8.5-8.7h-3.15l-1.65-1.8c-.32-.35-.78-.55-1.25-.55h-4.9c-.47 0-.93.2-1.25.55l-1.65 1.8H3.5c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h17c1.1 0 2-.9 2-2v-10c0-1.1-.9-2-2-2zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
+                </svg>
+            </button>
+        </div>
+
+        <input type="file" id="fileInput" accept="image/*">
 
         <div class="share-panel" id="sharePanel">
             <h3>שתף את התמונה שלך!</h3>
@@ -356,6 +387,10 @@
         const finalCanvas = document.getElementById('finalCanvas');
         const capturedImage = document.getElementById('capturedImage');
         const captureBtn = document.getElementById('captureBtn');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const fileInput = document.getElementById('fileInput');
+        const buttonsContainer = document.getElementById('buttonsContainer');
+        const clickToCapture = document.getElementById('clickToCapture');
         const sharePanel = document.getElementById('sharePanel');
         const retakeBtn = document.getElementById('retakeBtn');
         const permissionOverlay = document.getElementById('permissionOverlay');
@@ -364,6 +399,7 @@
 
         let stream = null;
         let finalImageBlob = null;
+        let isFromUpload = false;
 
         async function startCamera() {
             try {
@@ -385,7 +421,12 @@
 
         startCameraBtn.addEventListener('click', startCamera);
 
-        captureBtn.addEventListener('click', async () => {
+        // Capture from camera
+        async function captureFromCamera() {
+            if (video.style.display === 'none') return;
+
+            isFromUpload = false;
+
             // Capture the video frame
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -410,7 +451,57 @@
 
             // Show share panel
             sharePanel.classList.add('active');
-            captureBtn.style.display = 'none';
+            buttonsContainer.style.display = 'none';
+            clickToCapture.style.display = 'none';
+        }
+
+        captureBtn.addEventListener('click', captureFromCamera);
+        clickToCapture.addEventListener('click', captureFromCamera);
+
+        // Upload from device
+        uploadBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            isFromUpload = true;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                // Draw uploaded image to canvas
+                const img = new Image();
+                img.onload = async () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    // Show captured image
+                    capturedImage.src = canvas.toDataURL('image/jpeg');
+                    capturedImage.style.display = 'block';
+                    video.style.display = 'none';
+
+                    // Generate final image with overlay
+                    try {
+                        await generateFinalImage();
+                    } catch (e) {
+                        console.log('Could not generate final image:', e);
+                    }
+
+                    // Show share panel
+                    sharePanel.classList.add('active');
+                    buttonsContainer.style.display = 'none';
+                    clickToCapture.style.display = 'none';
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            // Reset file input
+            fileInput.value = '';
         });
 
         async function generateFinalImage() {
@@ -486,7 +577,8 @@
             capturedImage.style.display = 'none';
             video.style.display = 'block';
             sharePanel.classList.remove('active');
-            captureBtn.style.display = 'flex';
+            buttonsContainer.style.display = 'flex';
+            clickToCapture.style.display = 'block';
         });
 
         // Download
