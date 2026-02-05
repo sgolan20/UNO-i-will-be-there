@@ -301,6 +301,79 @@
             display: none;
         }
 
+        .camera-container.adjusting {
+            cursor: grab;
+            touch-action: none;
+        }
+
+        .camera-container.adjusting:active {
+            cursor: grabbing;
+        }
+
+        .adjust-controls {
+            position: absolute;
+            bottom: 12%;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 4;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .adjust-controls.active {
+            display: flex;
+        }
+
+        .adjust-hint {
+            color: #d4af37;
+            font-size: 14px;
+            text-align: center;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.5);
+            padding: 6px 14px;
+            border-radius: 15px;
+        }
+
+        .adjust-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .confirm-btn {
+            padding: 12px 30px;
+            background: linear-gradient(145deg, #d4af37, #aa8a2e);
+            border: none;
+            border-radius: 25px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.4);
+            transition: transform 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .confirm-btn:active {
+            transform: scale(0.95);
+        }
+
+        .cancel-adjust-btn {
+            padding: 12px 20px;
+            background: transparent;
+            border: 2px solid #d4af37;
+            border-radius: 25px;
+            color: #d4af37;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .cancel-adjust-btn:active {
+            transform: scale(0.95);
+        }
+
         @media (max-width: 500px) {
             .container {
                 max-width: 100vw;
@@ -347,6 +420,14 @@
         </div>
 
         <input type="file" id="fileInput" accept="image/*">
+
+        <div class="adjust-controls" id="adjustControls">
+            <p class="adjust-hint">גרור את התמונה למיקום הרצוי</p>
+            <div class="adjust-buttons">
+                <button class="confirm-btn" id="confirmBtn">אישור</button>
+                <button class="cancel-adjust-btn" id="cancelAdjustBtn">ביטול</button>
+            </div>
+        </div>
 
         <div class="share-panel" id="sharePanel">
             <h3>שתף את התמונה שלך!</h3>
@@ -425,10 +506,24 @@
         const permissionOverlay = document.getElementById('permissionOverlay');
         const startCameraBtn = document.getElementById('startCamera');
         const overlayImage = document.querySelector('.overlay-image');
+        const adjustControls = document.getElementById('adjustControls');
+        const confirmBtn = document.getElementById('confirmBtn');
+        const cancelAdjustBtn = document.getElementById('cancelAdjustBtn');
+        const cameraContainer = document.querySelector('.camera-container');
 
         let stream = null;
         let finalImageBlob = null;
         let isFromUpload = false;
+        let adjustMode = false;
+        let cropX = 0.5;
+        let cropY = 0.5;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let dragStartCropX = 0;
+        let dragStartCropY = 0;
+        let uploadedImageWidth = 0;
+        let uploadedImageHeight = 0;
 
         async function startCamera() {
             try {
@@ -479,6 +574,8 @@
             }
 
             isFromUpload = false;
+            cropX = 0.5;
+            cropY = 0.5;
 
             // Capture the video frame
             canvas.width = video.videoWidth;
@@ -530,7 +627,6 @@
 
             const reader = new FileReader();
             reader.onload = async (event) => {
-                // Draw uploaded image to canvas
                 const img = new Image();
                 img.onload = async () => {
                     canvas.width = img.width;
@@ -538,28 +634,16 @@
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0);
 
-                    // Show captured image
                     capturedImage.src = canvas.toDataURL('image/jpeg');
                     capturedImage.style.display = 'block';
                     video.style.display = 'none';
 
-                    // Generate final image with overlay
-                    try {
-                        await generateFinalImage();
-                    } catch (e) {
-                        console.log('Could not generate final image:', e);
-                    }
-
-                    // Show share panel
-                    sharePanel.classList.add('active');
-                    buttonsContainer.style.display = 'none';
-                    clickToCapture.style.display = 'none';
+                    enterAdjustMode(img.width, img.height);
                 };
                 img.src = event.target.result;
             };
             reader.readAsDataURL(file);
 
-            // Reset file input
             fileInput.value = '';
         });
 
@@ -589,17 +673,15 @@
                     let drawWidth, drawHeight, offsetX, offsetY;
 
                     if (selfieAspect > targetAspect) {
-                        // Selfie is wider - fit by height
                         drawHeight = selfieHeight;
                         drawWidth = selfieHeight * selfieAspect;
-                        offsetX = selfieLeft - (drawWidth - selfieWidth) / 2;
+                        offsetX = selfieLeft - (drawWidth - selfieWidth) * cropX;
                         offsetY = selfieTop;
                     } else {
-                        // Selfie is taller - fit by width
                         drawWidth = selfieWidth;
                         drawHeight = selfieWidth / selfieAspect;
                         offsetX = selfieLeft;
-                        offsetY = selfieTop - (drawHeight - selfieHeight) / 2;
+                        offsetY = selfieTop - (drawHeight - selfieHeight) * cropY;
                     }
 
                     ctx.drawImage(selfieImg, offsetX, offsetY, drawWidth, drawHeight);
@@ -632,12 +714,115 @@
             });
         }
 
+        // Adjustment mode functions
+        function enterAdjustMode(imgWidth, imgHeight) {
+            adjustMode = true;
+            uploadedImageWidth = imgWidth;
+            uploadedImageHeight = imgHeight;
+            cropX = 0.5;
+            cropY = 0.5;
+            capturedImage.style.objectPosition = '50% 50%';
+            cameraContainer.classList.add('adjusting');
+            adjustControls.classList.add('active');
+            buttonsContainer.style.display = 'none';
+            clickToCapture.style.display = 'none';
+        }
+
+        function exitAdjustMode() {
+            adjustMode = false;
+            isDragging = false;
+            cameraContainer.classList.remove('adjusting');
+            adjustControls.classList.remove('active');
+        }
+
+        function getPointerPos(e) {
+            if (e.touches && e.touches.length > 0) {
+                return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }
+            return { x: e.clientX, y: e.clientY };
+        }
+
+        function onDragStart(e) {
+            if (!adjustMode) return;
+            e.preventDefault();
+            isDragging = true;
+            const pos = getPointerPos(e);
+            dragStartX = pos.x;
+            dragStartY = pos.y;
+            dragStartCropX = cropX;
+            dragStartCropY = cropY;
+        }
+
+        function onDragMove(e) {
+            if (!adjustMode || !isDragging) return;
+            e.preventDefault();
+            const pos = getPointerPos(e);
+            const deltaX = pos.x - dragStartX;
+            const deltaY = pos.y - dragStartY;
+
+            const rect = cameraContainer.getBoundingClientRect();
+            const imgAspect = uploadedImageWidth / uploadedImageHeight;
+            const containerAspect = rect.width / rect.height;
+
+            if (imgAspect > containerAspect) {
+                const scaledWidth = rect.height * imgAspect;
+                const overflowX = scaledWidth - rect.width;
+                if (overflowX > 0) {
+                    cropX = Math.max(0, Math.min(1, dragStartCropX - deltaX / overflowX));
+                }
+            } else {
+                const scaledHeight = rect.width / imgAspect;
+                const overflowY = scaledHeight - rect.height;
+                if (overflowY > 0) {
+                    cropY = Math.max(0, Math.min(1, dragStartCropY - deltaY / overflowY));
+                }
+            }
+
+            capturedImage.style.objectPosition = `${cropX * 100}% ${cropY * 100}%`;
+        }
+
+        function onDragEnd() {
+            isDragging = false;
+        }
+
+        cameraContainer.addEventListener('mousedown', onDragStart);
+        cameraContainer.addEventListener('mousemove', onDragMove);
+        cameraContainer.addEventListener('mouseup', onDragEnd);
+        cameraContainer.addEventListener('mouseleave', onDragEnd);
+        cameraContainer.addEventListener('touchstart', onDragStart, { passive: false });
+        cameraContainer.addEventListener('touchmove', onDragMove, { passive: false });
+        cameraContainer.addEventListener('touchend', onDragEnd);
+
+        confirmBtn.addEventListener('click', async () => {
+            exitAdjustMode();
+            try {
+                await generateFinalImage();
+            } catch (e) {
+                console.log('Could not generate final image:', e);
+            }
+            sharePanel.classList.add('active');
+        });
+
+        cancelAdjustBtn.addEventListener('click', () => {
+            exitAdjustMode();
+            capturedImage.style.display = 'none';
+            capturedImage.style.objectPosition = '';
+            video.style.display = 'block';
+            buttonsContainer.style.display = 'flex';
+            clickToCapture.style.display = 'block';
+            cropX = 0.5;
+            cropY = 0.5;
+        });
+
         retakeBtn.addEventListener('click', () => {
             capturedImage.style.display = 'none';
+            capturedImage.style.objectPosition = '';
             video.style.display = 'block';
             sharePanel.classList.remove('active');
             buttonsContainer.style.display = 'flex';
             clickToCapture.style.display = 'block';
+            cropX = 0.5;
+            cropY = 0.5;
         });
 
         // Download
